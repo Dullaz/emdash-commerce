@@ -9,6 +9,7 @@
 		"./admin": "./src/admin.tsx"
 	},
 	"peerDependencies": {
+		"@emdash-cms/admin": "*",
 		"emdash": "*",
 		"react": "*",
 		"react-dom": "*"

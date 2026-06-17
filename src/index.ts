@@ -14,8 +14,15 @@
  * to use (EmDash plugins cannot create content schema from their context). The
  * plugin owns orders, inventory, carts and payments in its own storage.
  */
+import { z } from "astro/zod";
 import { definePlugin } from "emdash";
-import type { PluginContext, PluginDescriptor } from "emdash";
+import type { PluginContext, PluginDescriptor, RouteContext } from "emdash";
+import {
+	DEFAULT_FIELD_MAP,
+	type CommerceConfig,
+	type CommerceFieldMap,
+} from "./constants";
+import { loadEffectiveConfig, loadStoredConfig, saveConfig } from "./config";
 
 /** Stable plugin identity. Must match between descriptor and runtime. */
 export const PLUGIN_ID = "buysomepixels-commerce";
@@ -43,9 +50,19 @@ export function commercePlugin(
 		entrypoint: ENTRYPOINT,
 		adminEntry: ADMIN_ENTRY,
 		format: "native",
+		adminPages: [
+			{ path: "/setup", label: "Store setup", icon: "storefront" },
+		],
 		options,
 	};
 }
+
+/** Zod schema for the POST body that saves a configuration. */
+const configSaveInput = z.object({
+	productsCollection: z.string().min(1),
+	fieldMap: z.record(z.string(), z.string()),
+	defaultCurrency: z.string().min(1).optional(),
+});
 
 /**
  * Runtime factory — imported and called by EmDash with `descriptor.options`.
@@ -77,6 +94,48 @@ export function createPlugin(options: CommerceOptions = {}) {
 					ctx.log.info("BuySomePixels commerce installed", { defaultCurrency });
 				},
 			},
+		},
+		routes: {
+			/**
+			 * Read the store configuration (admin-only — protected by the admin
+			 * session middleware since it is not marked `public`).
+			 * Returns the effective config plus whether it was explicitly saved.
+			 */
+			config: {
+				handler: async (ctx: RouteContext) => {
+					const effective = await loadEffectiveConfig(ctx, defaultCurrency);
+					return {
+						configured: effective.configured,
+						config: effective.config,
+						stored: await loadStoredConfig(ctx),
+						defaultCurrency,
+					};
+				},
+			},
+			/** Persist a configuration chosen in the setup panel (admin-only). */
+			"config/save": {
+				input: configSaveInput,
+				handler: async (ctx: RouteContext) => {
+					const input = ctx.input as z.infer<typeof configSaveInput>;
+					const config: CommerceConfig = {
+						productsCollection: input.productsCollection,
+						fieldMap: {
+							...DEFAULT_FIELD_MAP,
+							...(input.fieldMap as CommerceFieldMap),
+						},
+						defaultCurrency: input.defaultCurrency ?? defaultCurrency,
+					};
+					await saveConfig(ctx, config);
+					ctx.log.info("Commerce config saved", {
+						productsCollection: config.productsCollection,
+					});
+					return { configured: true, config };
+				},
+			},
+		},
+		admin: {
+			entry: ADMIN_ENTRY,
+			pages: [{ path: "/setup", label: "Store setup", icon: "storefront" }],
 		},
 	});
 }
