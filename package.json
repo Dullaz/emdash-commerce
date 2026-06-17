@@ -6,7 +6,8 @@
 	"description": "Ecommerce for EmDash: products, inventory, orders, checkout, and a pluggable payment-provider abstraction.",
 	"exports": {
 		".": "./src/index.ts",
-		"./admin": "./src/admin.tsx"
+		"./admin": "./src/admin.tsx",
+		"./shared": "./src/constants.ts"
 	},
 	"peerDependencies": {
 		"@emdash-cms/admin": "*",
