@@ -71,7 +71,12 @@ export function commercePlugin(
 		entrypoint: ENTRYPOINT,
 		adminEntry: ADMIN_ENTRY,
 		format: "native",
-		adminPages: [{ path: "/setup", label: "Store setup", icon: "storefront" }],
+		adminPages: [
+			{ path: "/orders", label: "Orders", icon: "receipt" },
+			{ path: "/inventory", label: "Inventory", icon: "package" },
+			{ path: "/setup", label: "Store setup", icon: "storefront" },
+		],
+		adminWidgets: [{ id: "dashboard", title: "Commerce", size: "half" }],
 		options,
 	};
 }
@@ -110,7 +115,12 @@ export function createPlugin(options: CommerceOptions = {}) {
 		routes: buildRoutes({ defaultCurrency }),
 		admin: {
 			entry: ADMIN_ENTRY,
-			pages: [{ path: "/setup", label: "Store setup", icon: "storefront" }],
+			pages: [
+				{ path: "/orders", label: "Orders", icon: "receipt" },
+				{ path: "/inventory", label: "Inventory", icon: "package" },
+				{ path: "/setup", label: "Store setup", icon: "storefront" },
+			],
+			widgets: [{ id: "dashboard", title: "Commerce", size: "half" }],
 			settingsSchema,
 		},
 	});

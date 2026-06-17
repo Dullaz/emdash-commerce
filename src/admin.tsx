@@ -5,12 +5,19 @@
  * (functions), keyed to match the paths/ids declared in the plugin descriptor.
  */
 import type { ComponentType } from "react";
+import { DashboardWidget } from "./admin/DashboardWidget";
+import { InventoryPage } from "./admin/InventoryPage";
+import { OrdersPage } from "./admin/OrdersPage";
 import { SetupPage } from "./admin/SetupPage";
 
 export const pages: Record<string, ComponentType> = {
 	"/setup": SetupPage,
+	"/orders": OrdersPage,
+	"/inventory": InventoryPage,
 };
 
-export const widgets: Record<string, ComponentType> = {};
+export const widgets: Record<string, ComponentType> = {
+	dashboard: DashboardWidget,
+};
 
 export const fields: Record<string, ComponentType> = {};

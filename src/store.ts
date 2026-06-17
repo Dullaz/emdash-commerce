@@ -129,6 +129,23 @@ export async function commitItems(
 	}
 }
 
+/** Add units back to on-hand stock (e.g. after a refund) for tracked items. */
+export async function restockItems(
+	ctx: PluginContext,
+	items: QtyItem[],
+): Promise<void> {
+	for (const it of items) {
+		const rec = await getInventory(ctx, it.productId);
+		if (rec?.tracked) {
+			await ctx.storage.inventory.put(it.productId, {
+				...rec,
+				onHand: rec.onHand + it.quantity,
+				updatedAt: new Date().toISOString(),
+			});
+		}
+	}
+}
+
 export async function listInventory(
 	ctx: PluginContext,
 	limit = 200,

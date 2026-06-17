@@ -22,18 +22,24 @@ import {
 	type Cart,
 	type CartItem,
 	type Order,
+	type OrderStatus,
 } from "./domain";
 import { getActiveProvider, getProvider, loadProviderId } from "./payments";
 import {
 	commitItems,
 	deleteCart,
 	getAvailability,
+	getInventory,
 	getCart,
 	getOrder,
+	listInventory,
+	listOrders,
 	releaseItems,
 	reserveItems,
+	restockItems,
 	saveCart,
 	saveOrder,
+	setStock,
 } from "./store";
 
 function query(ctx: RouteContext, key: string): string | null {
@@ -109,6 +115,15 @@ const checkoutInput = z.object({
 	token: z.string().min(1),
 	email: z.string().email().optional(),
 	name: z.string().optional(),
+});
+
+const orderIdInput = z.object({ orderId: z.string().min(1) });
+
+const inventorySetInput = z.object({
+	productId: z.string().min(1),
+	onHand: z.number().int().min(0).default(0),
+	tracked: z.boolean().optional(),
+	sku: z.string().optional(),
 });
 
 export function buildRoutes(opts: {
@@ -370,6 +385,141 @@ export function buildRoutes(opts: {
 					subtotal: order.subtotal,
 					total: order.total,
 					createdAt: order.createdAt,
+				};
+			},
+		},
+
+		// ---- Admin: orders ---------------------------------------------------
+		orders: {
+			handler: async (ctx: RouteContext) => {
+				const limit = Number(query(ctx, "limit") ?? 50) || 50;
+				const cursor = query(ctx, "cursor") ?? undefined;
+				const status = (query(ctx, "status") as OrderStatus | null) ?? undefined;
+				return listOrders(ctx, { limit, cursor, status });
+			},
+		},
+		"orders/get": {
+			handler: async (ctx: RouteContext) => {
+				const id = query(ctx, "id");
+				if (!id) throw badRequest("Missing order id");
+				const order = await getOrder(ctx, id);
+				if (!order) throw notFound("Order not found");
+				return order;
+			},
+		},
+		"orders/refund": {
+			input: orderIdInput,
+			handler: async (ctx: RouteContext) => {
+				const { orderId } = ctx.input as z.infer<typeof orderIdInput>;
+				const order = await getOrder(ctx, orderId);
+				if (!order) throw notFound("Order not found");
+				if (order.status !== "paid" && order.status !== "fulfilled") {
+					throw badRequest("Only paid orders can be refunded");
+				}
+				const provider = getProvider(order.provider);
+				const result = await provider.refund({ order, amount: order.total, ctx });
+				if (!result.refunded) throw badRequest("Provider declined the refund");
+				const refunded = {
+					...transition(order, "refunded", new Date().toISOString(), "refunded"),
+					providerPaymentId: order.providerPaymentId,
+				};
+				await restockItems(
+					ctx,
+					order.items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+				);
+				await saveOrder(ctx, refunded);
+				return { ok: true, status: "refunded" as const };
+			},
+		},
+		"orders/fulfill": {
+			input: orderIdInput,
+			handler: async (ctx: RouteContext) => {
+				const { orderId } = ctx.input as z.infer<typeof orderIdInput>;
+				const order = await getOrder(ctx, orderId);
+				if (!order) throw notFound("Order not found");
+				if (order.status !== "paid") {
+					throw badRequest("Only paid orders can be fulfilled");
+				}
+				const fulfilled = transition(
+					order,
+					"fulfilled",
+					new Date().toISOString(),
+					"fulfilled",
+				);
+				await saveOrder(ctx, fulfilled);
+				return { ok: true, status: "fulfilled" as const };
+			},
+		},
+
+		// ---- Admin: inventory ------------------------------------------------
+		inventory: {
+			handler: async (ctx: RouteContext) => {
+				const cfg = await config(ctx);
+				if (!ctx.content || !cfg.productsCollection) return { items: [] };
+				const products = await ctx.content.list(cfg.productsCollection, {
+					limit: 200,
+				});
+				const items = [];
+				for (const p of products.items) {
+					const rec = await getInventory(ctx, p.id);
+					items.push({
+						productId: p.id,
+						slug: p.slug,
+						title: String(p.data[cfg.fieldMap.title] ?? p.slug ?? p.id),
+						sku: rec?.sku ?? (p.data[cfg.fieldMap.sku] as string | undefined),
+						tracked: rec?.tracked ?? false,
+						onHand: rec?.onHand ?? null,
+						reserved: rec?.reserved ?? 0,
+						available: rec
+							? rec.tracked
+								? Math.max(0, rec.onHand - rec.reserved)
+								: null
+							: null,
+					});
+				}
+				return { items };
+			},
+		},
+		"inventory/set": {
+			input: inventorySetInput,
+			handler: async (ctx: RouteContext) => {
+				const input = ctx.input as z.infer<typeof inventorySetInput>;
+				const rec = await setStock(ctx, input.productId, input.onHand, {
+					tracked: input.tracked ?? true,
+					sku: input.sku,
+				});
+				return rec;
+			},
+		},
+
+		// ---- Admin: dashboard stats ------------------------------------------
+		stats: {
+			handler: async (ctx: RouteContext) => {
+				const { items: orders } = await listOrders(ctx, { limit: 500 });
+				const revenue = orders
+					.filter((o) => o.status === "paid" || o.status === "fulfilled")
+					.reduce((sum, o) => sum + o.total, 0);
+				const paidCount = orders.filter(
+					(o) => o.status === "paid" || o.status === "fulfilled",
+				).length;
+				const inventory = await listInventory(ctx);
+				const lowStock = inventory.filter(
+					(r) => r.tracked && r.onHand - r.reserved <= 5,
+				).length;
+				const currency = orders.find((o) => o.currency)?.currency ?? "USD";
+				return {
+					ordersCount: orders.length,
+					paidCount,
+					revenue,
+					currency,
+					lowStock,
+					recent: orders.slice(0, 5).map((o) => ({
+						id: o.id,
+						status: o.status,
+						total: o.total,
+						currency: o.currency,
+						createdAt: o.createdAt,
+					})),
 				};
 			},
 		},
