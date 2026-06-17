@@ -1,0 +1,16 @@
+{
+	"name": "@buysomepixels/commerce",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Ecommerce for EmDash: products, inventory, orders, checkout, and a pluggable payment-provider abstraction.",
+	"exports": {
+		".": "./src/index.ts",
+		"./admin": "./src/admin.tsx"
+	},
+	"peerDependencies": {
+		"emdash": "*",
+		"react": "*",
+		"react-dom": "*"
+	}
+}
