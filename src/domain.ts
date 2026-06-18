@@ -201,6 +201,13 @@ export interface OrderStatusEvent {
 	note?: string;
 }
 
+/** Customer-initiated refund request (admin approves via the refund flow). */
+export interface RefundRequest {
+	requested: boolean;
+	reason?: string;
+	requestedAt?: string;
+}
+
 export interface Order {
 	id: string;
 	status: OrderStatus;
@@ -213,11 +220,41 @@ export interface Order {
 	providerCheckoutId?: string;
 	providerPaymentId?: string;
 	customer?: OrderCustomer;
+	/** Normalized customer email — top-level + indexed for order history. */
+	email?: string;
 	/** Cart token the order was created from. */
 	cartToken?: string;
+	refund?: RefundRequest;
 	history: OrderStatusEvent[];
 	createdAt: string;
 	updatedAt: string;
+}
+
+/** Lowercase + trim an email for use as a stable key/identity. */
+export function normalizeEmail(email: string): string {
+	return email.trim().toLowerCase();
+}
+
+/**
+ * Expected, user-facing route error. Defined in this package (single copy) so
+ * `instanceof` is reliable — unlike emdash's `PluginRouteError`, which Vite can
+ * duplicate across the plugin/runner boundary in dev, breaking `instanceof`.
+ * Route handlers are wrapped to convert this into an in-band error result.
+ */
+export class CommerceError extends Error {
+	constructor(
+		public code: string,
+		message: string,
+		public status = 400,
+	) {
+		super(message);
+		this.name = "CommerceError";
+	}
+}
+
+/** Marker shape returned to clients when a handler raised a CommerceError. */
+export interface CommerceErrorResult {
+	__commerceError: { code: string; message: string };
 }
 
 /** Allowed status transitions. */

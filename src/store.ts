@@ -216,3 +216,17 @@ export async function listOrders(
 		hasMore: res.hasMore,
 	};
 }
+
+/** All orders for a (normalized) customer email, newest first. */
+export async function listOrdersByEmail(
+	ctx: PluginContext,
+	email: string,
+	limit = 100,
+): Promise<Order[]> {
+	const res = await ctx.storage.orders.query({
+		where: { email },
+		orderBy: { createdAt: "desc" },
+		limit,
+	});
+	return (res.items as Array<{ data: Order }>).map((i) => i.data);
+}

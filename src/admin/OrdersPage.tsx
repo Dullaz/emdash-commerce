@@ -71,7 +71,24 @@ export function OrdersPage() {
 										</button>
 									</td>
 									<td style={ui.td}>{new Date(o.createdAt).toLocaleString()}</td>
-									<td style={ui.td}><StatusBadge status={o.status} /></td>
+									<td style={ui.td}>
+										<StatusBadge status={o.status} />
+										{o.refund?.requested && (
+											<span
+												style={{
+													marginLeft: 6,
+													fontSize: 11,
+													fontWeight: 700,
+													padding: "2px 6px",
+													borderRadius: 999,
+													background: "#fff6e0",
+													color: "#9a6700",
+												}}
+											>
+												refund requested
+											</span>
+										)}
+									</td>
 									<td style={ui.td}>{formatMoney(o.total, o.currency)}</td>
 									<td style={ui.td}>{o.provider}</td>
 									<td style={ui.td}>
@@ -104,6 +121,15 @@ export function OrdersPage() {
 												{o.customer?.email && (
 													<div style={{ fontSize: 13, color: "#444" }}>
 														Customer: {o.customer.name ?? ""} {o.customer.email}
+													</div>
+												)}
+												{o.refund?.requested && (
+													<div style={{ fontSize: 13, color: "#9a6700" }}>
+														Refund requested
+														{o.refund.requestedAt
+															? ` (${new Date(o.refund.requestedAt).toLocaleString()})`
+															: ""}
+														{o.refund.reason ? `: "${o.refund.reason}"` : ""}
 													</div>
 												)}
 												{o.items.map((it) => (

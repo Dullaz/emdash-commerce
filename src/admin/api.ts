@@ -17,7 +17,17 @@ async function unwrap<T>(res: Response): Promise<T> {
 			`Request failed (${res.status})`;
 		throw new Error(message);
 	}
-	return (json && "data" in json ? json.data : json) as T;
+	const data = json && "data" in json ? json.data : json;
+	if (
+		data &&
+		typeof data === "object" &&
+		(data as { __commerceError?: { message?: string } }).__commerceError
+	) {
+		throw new Error(
+			(data as { __commerceError: { message: string } }).__commerceError.message,
+		);
+	}
+	return data as T;
 }
 
 export async function pluginGet<T>(route: string): Promise<T> {

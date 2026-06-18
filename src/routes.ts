@@ -3,7 +3,6 @@
  * availability) are `public`; configuration routes are admin-only.
  */
 import { z } from "astro/zod";
-import { PluginRouteError } from "emdash";
 import type { PluginContext, PluginRoute, RouteContext } from "emdash";
 import {
 	DEFAULT_FIELD_MAP,
@@ -12,11 +11,13 @@ import {
 } from "./constants";
 import { loadEffectiveConfig, loadStoredConfig, saveConfig } from "./config";
 import {
+	CommerceError,
 	computeTotals,
 	holdsReservation,
 	InsufficientStockError,
 	lineItemsFromCart,
 	mergeCartItem,
+	normalizeEmail,
 	setCartItemQuantity,
 	transition,
 	type Cart,
@@ -46,10 +47,37 @@ function query(ctx: RouteContext, key: string): string | null {
 	return new URL(ctx.request.url).searchParams.get(key);
 }
 
-const badRequest = (message: string) =>
-	new PluginRouteError("BAD_REQUEST", message, 400);
-const notFound = (message: string) =>
-	new PluginRouteError("NOT_FOUND", message, 404);
+const badRequest = (message: string) => new CommerceError("BAD_REQUEST", message, 400);
+const notFound = (message: string) => new CommerceError("NOT_FOUND", message, 404);
+
+/**
+ * Wrap every handler so an expected `CommerceError` becomes an in-band result
+ * (`{ __commerceError }`) instead of a thrown error. The plugin runner only
+ * passes through its own `PluginRouteError` (which Vite may duplicate, breaking
+ * `instanceof`), so anything else would surface as a masked 500. Clients
+ * (`lib/commerce.ts`, `admin/api.ts`) detect `__commerceError` and throw.
+ */
+function wrapHandlers(
+	routes: Record<string, PluginRoute>,
+): Record<string, PluginRoute> {
+	const out: Record<string, PluginRoute> = {};
+	for (const [name, route] of Object.entries(routes)) {
+		out[name] = {
+			...route,
+			handler: async (ctx: RouteContext) => {
+				try {
+					return await route.handler(ctx);
+				} catch (err) {
+					if (err instanceof CommerceError) {
+						return { __commerceError: { code: err.code, message: err.message } };
+					}
+					throw err;
+				}
+			},
+		};
+	}
+	return out;
+}
 
 function newOrderId(): string {
 	const rand =
@@ -61,6 +89,22 @@ function newOrderId(): string {
 
 function cartSummary(cart: Cart) {
 	return { token: cart.token, items: cart.items, totals: computeTotals(cart.items) };
+}
+
+/** Customer-safe view of an order (no internal provider/cart fields). */
+export function sanitizeOrder(o: Order) {
+	return {
+		id: o.id,
+		status: o.status,
+		items: o.items,
+		currency: o.currency,
+		subtotal: o.subtotal,
+		total: o.total,
+		createdAt: o.createdAt,
+		history: o.history,
+		refund: o.refund ?? null,
+		customerName: o.customer?.name ?? null,
+	};
 }
 
 /** Load a product from the configured collection and build a cart line. */
@@ -113,8 +157,19 @@ const cartClearInput = z.object({ token: z.string().min(1) });
 
 const checkoutInput = z.object({
 	token: z.string().min(1),
-	email: z.string().email().optional(),
+	email: z.string().email(),
 	name: z.string().optional(),
+});
+
+const orderLookupInput = z.object({
+	orderId: z.string().min(1),
+	email: z.string().email(),
+});
+
+const refundRequestInput = z.object({
+	orderId: z.string().min(1),
+	email: z.string().email(),
+	reason: z.string().max(1000).optional(),
 });
 
 const orderIdInput = z.object({ orderId: z.string().min(1) });
@@ -135,7 +190,7 @@ export function buildRoutes(opts: {
 		return (await loadEffectiveConfig(ctx, defaultCurrency)).config;
 	}
 
-	return {
+	const routes: Record<string, PluginRoute> = {
 		// ---- Admin: configuration --------------------------------------------
 		config: {
 			handler: async (ctx: RouteContext) => {
@@ -267,10 +322,8 @@ export function buildRoutes(opts: {
 					subtotal: totals.subtotal,
 					total: totals.total,
 					provider: providerId,
-					customer:
-						input.email || input.name
-							? { email: input.email, name: input.name }
-							: undefined,
+					customer: { email: input.email, name: input.name },
+					email: normalizeEmail(input.email),
 					cartToken: input.token,
 					history: [{ status: "pending", at: now }],
 					createdAt: now,
@@ -282,7 +335,7 @@ export function buildRoutes(opts: {
 					await reserveItems(ctx, qty);
 				} catch (err) {
 					if (err instanceof InsufficientStockError) {
-						throw new PluginRouteError("OUT_OF_STOCK", err.message, 409);
+						throw new CommerceError("OUT_OF_STOCK", err.message, 409);
 					}
 					throw err;
 				}
@@ -369,7 +422,7 @@ export function buildRoutes(opts: {
 			},
 		},
 
-		// ---- Public: order lookup (success page) -----------------------------
+		// ---- Public: order by id (success page, just-placed order) -----------
 		order: {
 			public: true,
 			handler: async (ctx: RouteContext) => {
@@ -377,15 +430,53 @@ export function buildRoutes(opts: {
 				if (!id) throw badRequest("Missing order id");
 				const order = await getOrder(ctx, id);
 				if (!order) throw notFound("Order not found");
-				return {
-					id: order.id,
-					status: order.status,
-					items: order.items,
-					currency: order.currency,
-					subtotal: order.subtotal,
-					total: order.total,
-					createdAt: order.createdAt,
+				return sanitizeOrder(order);
+			},
+		},
+
+		// ---- Public: guest order lookup (code + email) -----------------------
+		"orders/lookup": {
+			public: true,
+			input: orderLookupInput,
+			handler: async (ctx: RouteContext) => {
+				const { orderId, email } = ctx.input as z.infer<typeof orderLookupInput>;
+				const order = await getOrder(ctx, orderId);
+				if (!order || order.email !== normalizeEmail(email)) {
+					// Same response whether the id is wrong or the email mismatches,
+					// so an attacker can't probe which order ids exist.
+					throw notFound("No order found for that code and email");
+				}
+				return sanitizeOrder(order);
+			},
+		},
+
+		// ---- Public: request a refund (customer → admin approves) ------------
+		"orders/request-refund": {
+			public: true,
+			input: refundRequestInput,
+			handler: async (ctx: RouteContext) => {
+				const { orderId, email, reason } = ctx.input as z.infer<
+					typeof refundRequestInput
+				>;
+				const order = await getOrder(ctx, orderId);
+				if (!order || order.email !== normalizeEmail(email)) {
+					throw notFound("No order found for that code and email");
+				}
+				if (order.status !== "paid" && order.status !== "fulfilled") {
+					throw badRequest("Only paid orders can be refunded");
+				}
+				const updated: Order = {
+					...order,
+					refund: {
+						requested: true,
+						reason: reason?.trim() || undefined,
+						requestedAt: new Date().toISOString(),
+					},
+					updatedAt: new Date().toISOString(),
 				};
+				await saveOrder(ctx, updated);
+				ctx.log.info("Refund requested", { orderId });
+				return sanitizeOrder(updated);
 			},
 		},
 
@@ -524,4 +615,6 @@ export function buildRoutes(opts: {
 			},
 		},
 	};
+
+	return wrapHandlers(routes);
 }

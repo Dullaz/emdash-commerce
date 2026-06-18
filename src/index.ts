@@ -97,7 +97,9 @@ export function createPlugin(options: CommerceOptions = {}) {
 		allowedHosts: [],
 		storage: {
 			/** One order per checkout. */
-			orders: { indexes: ["status", "provider", "cartToken", "createdAt"] },
+			orders: {
+				indexes: ["status", "provider", "cartToken", "email", "createdAt"],
+			},
 			/** Payment attempts/records, linked to an order. */
 			payments: { indexes: ["orderId", "provider", "status", "createdAt"] },
 			/** Server-side carts, keyed by the cart token cookie. */
