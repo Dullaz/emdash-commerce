@@ -139,6 +139,9 @@ export const DEFAULT_FIELD_MAP: CommerceFieldMap = {
 /** Collection slug used by the turnkey fallback when nothing is configured. */
 export const DEFAULT_PRODUCTS_COLLECTION = "products";
 
+/** Store name used in transactional email copy. */
+export const STORE_NAME = "Buy Some Pixels";
+
 export function defaultConfig(defaultCurrency = "USD"): CommerceConfig {
 	return {
 		productsCollection: null,

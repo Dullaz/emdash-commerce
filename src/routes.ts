@@ -10,6 +10,7 @@ import {
 	type CommerceFieldMap,
 } from "./constants";
 import { loadEffectiveConfig, loadStoredConfig, saveConfig } from "./config";
+import { orderConfirmationEmail } from "./email/templates";
 import {
 	CommerceError,
 	computeTotals,
@@ -403,6 +404,24 @@ export function buildRoutes(opts: {
 						await commitItems(ctx, qty);
 						await saveOrder(ctx, paid);
 						if (paid.cartToken) await deleteCart(ctx, paid.cartToken);
+						// Send the confirmation email (best-effort — never fail the
+						// webhook if email is unconfigured or the provider errors).
+						if (ctx.email && paid.email) {
+							try {
+								await ctx.email.send(
+									orderConfirmationEmail({
+										to: paid.email,
+										order: paid,
+										lookupUrl: ctx.url("/orders/lookup"),
+									}),
+								);
+							} catch (err) {
+								ctx.log.warn("Order confirmation email failed", {
+									orderId: paid.id,
+									error: String(err),
+								});
+							}
+						}
 					}
 					return { ok: true, status: "paid" };
 				}

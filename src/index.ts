@@ -16,6 +16,7 @@
  */
 import { definePlugin } from "emdash";
 import type { PluginContext, PluginDescriptor } from "emdash";
+import { deliverViaCloudflare } from "./email/cloudflare";
 import { buildRoutes } from "./routes";
 
 /** Stable plugin identity. Must match between descriptor and runtime. */
@@ -56,6 +57,25 @@ const settingsSchema = {
 		type: "secret" as const,
 		label: "Rootline webhook secret",
 	},
+	cfAccountId: {
+		type: "string" as const,
+		label: "Cloudflare account ID",
+		description: "For sending transactional email via Cloudflare Email Sending.",
+	},
+	cfApiToken: {
+		type: "secret" as const,
+		label: "Cloudflare API token (Email Sending)",
+	},
+	fromEmail: {
+		type: "email" as const,
+		label: "From email",
+		description: "Must be on a domain onboarded to Cloudflare Email Sending.",
+	},
+	fromName: {
+		type: "string" as const,
+		label: "From name",
+		default: "Buy Some Pixels",
+	},
 };
 
 /**
@@ -91,10 +111,16 @@ export function createPlugin(options: CommerceOptions = {}) {
 		id: PLUGIN_ID,
 		version: PLUGIN_VERSION,
 		// content:* to read the configured products collection (and seed demo
-		// products); network:request reserved for the rootline PSP (hosts added
-		// once its staging details are known).
-		capabilities: ["content:read", "content:write", "network:request"],
-		allowedHosts: [],
+		// products); network:request for the rootline PSP + Cloudflare email API;
+		// email:send + the transport hook for transactional email.
+		capabilities: [
+			"content:read",
+			"content:write",
+			"network:request",
+			"email:send",
+			"hooks.email-transport:register",
+		],
+		allowedHosts: ["api.cloudflare.com"],
 		storage: {
 			/** One order per checkout. */
 			orders: {
@@ -112,6 +138,11 @@ export function createPlugin(options: CommerceOptions = {}) {
 				handler: async (_event: unknown, ctx: PluginContext) => {
 					ctx.log.info("BuySomePixels commerce installed", { defaultCurrency });
 				},
+			},
+			// Exclusive transport: deliver all outgoing email via Cloudflare.
+			"email:deliver": {
+				exclusive: true,
+				handler: deliverViaCloudflare,
 			},
 		},
 		routes: buildRoutes({ defaultCurrency }),
