@@ -165,12 +165,20 @@ export async function consumeOneTimeToken(
 	token: string,
 	purpose: TokenPurpose,
 ): Promise<string | null> {
+	const result = await consumeAnyToken(ctx, token);
+	return result && result.purpose === purpose ? result.email : null;
+}
+
+/** Consume a one-time token of any purpose: deletes it, returns email + purpose. */
+export async function consumeAnyToken(
+	ctx: PluginContext,
+	token: string,
+): Promise<{ email: string; purpose: TokenPurpose } | null> {
 	const record = (await ctx.storage.customer_tokens.get(token)) as
 		| CustomerToken
 		| null;
 	if (!record) return null;
-	await ctx.storage.customer_tokens.delete(token); // one-time, even on mismatch
-	if (record.purpose !== purpose) return null;
+	await ctx.storage.customer_tokens.delete(token); // one-time, even if expired
 	if (new Date(record.expiresAt).getTime() < Date.now()) return null;
-	return record.email;
+	return { email: record.email, purpose: record.purpose };
 }

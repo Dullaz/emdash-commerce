@@ -123,6 +123,23 @@ Stock is **reserved** at checkout, **committed** (decremented) on payment, and
 **released** on cancel/expiry. Untracked products sell without limit; enable
 tracking per product on the **Inventory** admin page.
 
+## Order history, accounts & refund requests
+
+Email is **required** at checkout and stored (normalized, indexed) on the order.
+
+- **Guest lookup** — `/orders/lookup` finds an order by its code + matching
+  email (both required so a code alone never reveals an order).
+- **Accounts** — customers sign in with a password **or** a passwordless
+  magic link, and see all orders for their email at `/account`. Email
+  verification and password reset are emailed (need the email transport).
+  Sessions are an httpOnly cookie backed by `customer_sessions`; passwords are
+  PBKDF2 (`src/auth.ts`).
+- **Refund requests** — a customer flags an order from its detail view; the
+  admin sees a "refund requested" badge on the Orders page and approves with
+  the existing refund action.
+
+Identity is the **email**; magic-link sign-in creates the account on first use.
+
 ## API routes
 
 Mounted at `/_emdash/api/plugins/buysomepixels-commerce/<route>`.
@@ -137,6 +154,16 @@ Mounted at `/_emdash/api/plugins/buysomepixels-commerce/<route>`.
 | `checkout`       | POST   | public | Reserve + start provider checkout |
 | `webhook`        | POST   | public | Provider callback → order outcome |
 | `order`          | GET    | public | Sanitised order (success page)   |
+| `orders/lookup`  | POST   | public | Guest lookup by code + email     |
+| `orders/request-refund` | POST | public | Flag a refund request         |
+| `account/register` | POST | public | Create a password account        |
+| `account/login`  | POST   | public | Password sign-in                 |
+| `account/logout` | POST   | public | End the session                  |
+| `account/me`     | GET    | public | Session's customer + orders      |
+| `account/magic`  | POST   | public | Email a sign-in link             |
+| `account/consume`| POST   | public | Consume a magic/verify token     |
+| `account/reset-request` | POST | public | Email a reset link            |
+| `account/reset`  | POST   | public | Set a new password via token     |
 | `config`         | GET    | admin  | Effective store config           |
 | `config/save`    | POST   | admin  | Save collection + field map      |
 | `orders`         | GET    | admin  | List orders                      |

@@ -12,14 +12,23 @@ import {
 import { loadEffectiveConfig, loadStoredConfig, saveConfig } from "./config";
 import { passwordProblem, verifyPassword } from "./auth";
 import {
+	consumeAnyToken,
 	createCustomer,
+	createOneTimeToken,
 	createSession,
 	deleteSession,
 	getCustomer,
 	getSession,
+	markEmailVerified,
 	publicCustomer,
+	setCustomerPassword,
 } from "./customers";
-import { orderConfirmationEmail } from "./email/templates";
+import {
+	magicLinkEmail,
+	orderConfirmationEmail,
+	passwordResetEmail,
+	verifyEmail,
+} from "./email/templates";
 import {
 	CommerceError,
 	computeTotals,
@@ -193,6 +202,12 @@ const loginInput = z.object({
 	password: z.string().min(1),
 });
 const logoutInput = z.object({ token: z.string().min(1) });
+const emailOnlyInput = z.object({ email: z.string().email() });
+const consumeInput = z.object({ token: z.string().min(1) });
+const resetInput = z.object({
+	token: z.string().min(1),
+	password: z.string().min(1),
+});
 
 const orderIdInput = z.object({ orderId: z.string().min(1) });
 
@@ -542,6 +557,20 @@ export function buildRoutes(opts: {
 					throw err;
 				}
 				const session = await createSession(ctx, customer.email);
+				// Best-effort email verification link.
+				if (ctx.email) {
+					try {
+						const token = await createOneTimeToken(ctx, customer.email, "verify");
+						await ctx.email.send(
+							verifyEmail({
+								to: customer.email,
+								url: ctx.url(`/account/verify?token=${token}`),
+							}),
+						);
+					} catch (err) {
+						ctx.log.warn("Verification email failed", { error: String(err) });
+					}
+				}
 				return { sessionToken: session.token, customer: publicCustomer(customer) };
 			},
 		},
@@ -581,6 +610,101 @@ export function buildRoutes(opts: {
 				return {
 					customer: publicCustomer(customer),
 					orders: orders.map(sanitizeOrder),
+				};
+			},
+		},
+		"account/magic": {
+			public: true,
+			input: emailOnlyInput,
+			handler: async (ctx: RouteContext) => {
+				const { email } = ctx.input as z.infer<typeof emailOnlyInput>;
+				// Email a one-time sign-in link. Always succeed (never reveal whether
+				// an account exists). Consuming the link creates the account if needed.
+				const token = await createOneTimeToken(ctx, email, "login");
+				if (ctx.email) {
+					try {
+						await ctx.email.send(
+							magicLinkEmail({
+								to: email,
+								url: ctx.url(`/account/verify?token=${token}`),
+							}),
+						);
+					} catch (err) {
+						ctx.log.warn("Magic-link email failed", { error: String(err) });
+					}
+				}
+				return { ok: true };
+			},
+		},
+		"account/consume": {
+			public: true,
+			input: consumeInput,
+			handler: async (ctx: RouteContext) => {
+				const { token } = ctx.input as z.infer<typeof consumeInput>;
+				const result = await consumeAnyToken(ctx, token);
+				if (!result || result.purpose === "reset") {
+					throw badRequest("This link is invalid or has expired");
+				}
+				// Magic-link login creates the account on first use; verify just
+				// confirms the email. Either way we sign the customer in.
+				let customer = await getCustomer(ctx, result.email);
+				if (!customer) {
+					customer = await createCustomer(ctx, {
+						email: result.email,
+						emailVerified: true,
+					});
+				} else if (!customer.emailVerified) {
+					await markEmailVerified(ctx, result.email);
+					customer = await getCustomer(ctx, result.email);
+				}
+				const session = await createSession(ctx, result.email);
+				return {
+					purpose: result.purpose,
+					sessionToken: session.token,
+					customer: customer ? publicCustomer(customer) : null,
+				};
+			},
+		},
+		"account/reset-request": {
+			public: true,
+			input: emailOnlyInput,
+			handler: async (ctx: RouteContext) => {
+				const { email } = ctx.input as z.infer<typeof emailOnlyInput>;
+				// Only email if the account exists, but always return ok (no leak).
+				const customer = await getCustomer(ctx, email);
+				if (customer && ctx.email) {
+					try {
+						const token = await createOneTimeToken(ctx, email, "reset");
+						await ctx.email.send(
+							passwordResetEmail({
+								to: email,
+								url: ctx.url(`/account/reset?token=${token}`),
+							}),
+						);
+					} catch (err) {
+						ctx.log.warn("Password-reset email failed", { error: String(err) });
+					}
+				}
+				return { ok: true };
+			},
+		},
+		"account/reset": {
+			public: true,
+			input: resetInput,
+			handler: async (ctx: RouteContext) => {
+				const { token, password } = ctx.input as z.infer<typeof resetInput>;
+				const problem = passwordProblem(password);
+				if (problem) throw badRequest(problem);
+				const result = await consumeAnyToken(ctx, token);
+				if (!result || result.purpose !== "reset") {
+					throw badRequest("This link is invalid or has expired");
+				}
+				await setCustomerPassword(ctx, result.email, password);
+				const session = await createSession(ctx, result.email);
+				const customer = await getCustomer(ctx, result.email);
+				return {
+					sessionToken: session.token,
+					customer: customer ? publicCustomer(customer) : null,
 				};
 			},
 		},
