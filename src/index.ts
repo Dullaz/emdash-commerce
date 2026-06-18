@@ -132,6 +132,12 @@ export function createPlugin(options: CommerceOptions = {}) {
 			carts: { indexes: ["updatedAt"] },
 			/** Authoritative stock per product: { onHand, reserved }. */
 			inventory: { indexes: ["productId", "sku"] },
+			/** Customer accounts, keyed by normalized email. */
+			customers: { indexes: ["email"] },
+			/** Customer login sessions, keyed by token. */
+			customer_sessions: { indexes: ["email", "expiresAt"] },
+			/** One-time tokens (magic-link / verify / reset), keyed by token. */
+			customer_tokens: { indexes: ["email", "purpose"] },
 		},
 		hooks: {
 			"plugin:install": {

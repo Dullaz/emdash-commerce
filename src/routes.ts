@@ -10,6 +10,15 @@ import {
 	type CommerceFieldMap,
 } from "./constants";
 import { loadEffectiveConfig, loadStoredConfig, saveConfig } from "./config";
+import { passwordProblem, verifyPassword } from "./auth";
+import {
+	createCustomer,
+	createSession,
+	deleteSession,
+	getCustomer,
+	getSession,
+	publicCustomer,
+} from "./customers";
 import { orderConfirmationEmail } from "./email/templates";
 import {
 	CommerceError,
@@ -39,6 +48,7 @@ import {
 	releaseItems,
 	reserveItems,
 	restockItems,
+	listOrdersByEmail,
 	saveCart,
 	saveOrder,
 	setStock,
@@ -172,6 +182,17 @@ const refundRequestInput = z.object({
 	email: z.string().email(),
 	reason: z.string().max(1000).optional(),
 });
+
+const registerInput = z.object({
+	email: z.string().email(),
+	password: z.string().min(1),
+	name: z.string().optional(),
+});
+const loginInput = z.object({
+	email: z.string().email(),
+	password: z.string().min(1),
+});
+const logoutInput = z.object({ token: z.string().min(1) });
 
 const orderIdInput = z.object({ orderId: z.string().min(1) });
 
@@ -496,6 +517,71 @@ export function buildRoutes(opts: {
 				await saveOrder(ctx, updated);
 				ctx.log.info("Refund requested", { orderId });
 				return sanitizeOrder(updated);
+			},
+		},
+
+		// ---- Public: customer accounts ---------------------------------------
+		"account/register": {
+			public: true,
+			input: registerInput,
+			handler: async (ctx: RouteContext) => {
+				const input = ctx.input as z.infer<typeof registerInput>;
+				const problem = passwordProblem(input.password);
+				if (problem) throw badRequest(problem);
+				let customer;
+				try {
+					customer = await createCustomer(ctx, {
+						email: input.email,
+						password: input.password,
+						name: input.name,
+					});
+				} catch (err) {
+					if (err instanceof Error && err.message === "CUSTOMER_EXISTS") {
+						throw badRequest("An account with that email already exists");
+					}
+					throw err;
+				}
+				const session = await createSession(ctx, customer.email);
+				return { sessionToken: session.token, customer: publicCustomer(customer) };
+			},
+		},
+		"account/login": {
+			public: true,
+			input: loginInput,
+			handler: async (ctx: RouteContext) => {
+				const input = ctx.input as z.infer<typeof loginInput>;
+				const customer = await getCustomer(ctx, input.email);
+				if (
+					!customer?.passwordHash ||
+					!(await verifyPassword(input.password, customer.passwordHash))
+				) {
+					throw badRequest("Invalid email or password");
+				}
+				const session = await createSession(ctx, customer.email);
+				return { sessionToken: session.token, customer: publicCustomer(customer) };
+			},
+		},
+		"account/logout": {
+			public: true,
+			input: logoutInput,
+			handler: async (ctx: RouteContext) => {
+				const { token } = ctx.input as z.infer<typeof logoutInput>;
+				await deleteSession(ctx, token);
+				return { ok: true };
+			},
+		},
+		"account/me": {
+			public: true,
+			handler: async (ctx: RouteContext) => {
+				const session = await getSession(ctx, query(ctx, "token"));
+				if (!session) return { customer: null, orders: [] };
+				const customer = await getCustomer(ctx, session.email);
+				if (!customer) return { customer: null, orders: [] };
+				const orders = await listOrdersByEmail(ctx, session.email);
+				return {
+					customer: publicCustomer(customer),
+					orders: orders.map(sanitizeOrder),
+				};
 			},
 		},
 
