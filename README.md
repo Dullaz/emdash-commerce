@@ -91,24 +91,17 @@ settings via `getPluginSetting()` — never hardcode secrets.
 > `src/payments/rootline.ts` TODOs) and finalised once staging details land.
 > Until configured, rootline fails fast with a clear "not configured" error.
 
-## Email (Cloudflare)
+## Email
 
-The plugin registers the EmDash `email:deliver` transport and sends transactional
-email (order confirmations, and — see accounts — magic links / verification /
-reset) via **Cloudflare Email Sending's REST API** (plugin context can't reach
-the `send_email` Worker binding). Configure in plugin **settings**:
+This plugin is an email **consumer** — it builds messages (order confirmations,
+magic links, verification, reset; see `src/email/templates.ts`) and sends them
+via `ctx.email.send()`. **Delivery is handled by a separate transport plugin**
+(`@buysomepixels/email` / `bsp-email-plugin`), which you configure and activate
+under the admin's **Settings → Email**. Commerce only declares the `email:send`
+capability and doesn't know or care which provider delivers.
 
-- `cfAccountId` — Cloudflare account ID
-- `cfApiToken` — API token with Email Sending permission (secret)
-- `fromEmail` — a from address on a domain onboarded to Email Sending
-- `fromName` — display name
-
-Prerequisites: `bunx wrangler email sending enable <domain>` (or the dashboard),
-then mint the token. In **dev**, EmDash's built-in console transport captures
-email instead (look for `📧 [dev-email]` in the dev log), so you can exercise the
-flows without real sends. In **production**, the Cloudflare transport delivers.
-If unconfigured in production, delivery throws a clear error and best-effort
-sends (e.g. order confirmation) are swallowed so checkout never breaks.
+Order-confirmation sends are best-effort: if no transport is active (or it
+errors), checkout still completes.
 
 ## Order lifecycle
 
