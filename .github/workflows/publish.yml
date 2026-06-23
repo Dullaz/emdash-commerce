@@ -38,4 +38,4 @@ jobs:
           echo "which npm: $(which npm)"
           echo "id-token url present: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
       # Provenance is generated automatically under trusted publishing.
-      - run: npm publish --provenance --access public
+      - run: npm publish --provenance --access public --loglevel verbose
