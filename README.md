@@ -1,4 +1,4 @@
-# @buysomepixels/commerce
+# @dullaz/commerce
 
 Ecommerce for EmDash: products, inventory, orders, checkout, and a pluggable
 payment-provider abstraction. Native-format plugin (runs in-process; ships a
@@ -22,7 +22,7 @@ this by calling the official admin schema API **as the logged-in admin**.
 
 ```js
 // astro.config.mjs
-import { commercePlugin } from "@buysomepixels/commerce";
+import { commercePlugin } from "@dullaz/commerce";
 
 export default defineConfig({
   integrations: [
@@ -37,7 +37,7 @@ export default defineConfig({
 
 ## Store setup (admin)
 
-Open **Store setup** in the admin (`/_emdash/admin/plugins/buysomepixels-commerce/setup`):
+Open **Store setup** in the admin (`/_emdash/admin/plugins/dullaz-commerce/setup`):
 
 - **Create a new collection** — provisions a `products` collection with all
   required fields, or
@@ -96,7 +96,7 @@ settings via `getPluginSetting()` — never hardcode secrets.
 This plugin is an email **consumer** — it builds messages (order confirmations,
 magic links, verification, reset; see `src/email/templates.ts`) and sends them
 via `ctx.email.send()`. **Delivery is handled by a separate transport plugin**
-(`@buysomepixels/email` / `bsp-email-plugin`), which you configure and activate
+(`@dullaz/email`), which you configure and activate
 under the admin's **Settings → Email**. Commerce only declares the `email:send`
 capability and doesn't know or care which provider delivers.
 
@@ -135,7 +135,7 @@ Identity is the **email**; magic-link sign-in creates the account on first use.
 
 ## API routes
 
-Mounted at `/_emdash/api/plugins/buysomepixels-commerce/<route>`.
+Mounted at `/_emdash/api/plugins/dullaz-commerce/<route>`.
 
 | Route            | Method | Auth   | Purpose                          |
 | ---------------- | ------ | ------ | -------------------------------- |
@@ -169,8 +169,8 @@ Mounted at `/_emdash/api/plugins/buysomepixels-commerce/<route>`.
 ## Development
 
 ```bash
-bun test packages/commerce          # domain + provider unit tests
-bunx tsc -p packages/commerce/tsconfig.json --noEmit
+bun test                            # domain + provider unit tests
+bunx tsc -p tsconfig.json --noEmit
 ```
 
 Money is always integer minor units. Domain logic (`src/domain.ts`) is pure and

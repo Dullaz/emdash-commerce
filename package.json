@@ -1,18 +1,59 @@
 {
-	"name": "@buysomepixels/commerce",
+	"name": "@dullaz/commerce",
 	"version": "0.1.0",
-	"private": true,
 	"type": "module",
 	"description": "Ecommerce for EmDash: products, inventory, orders, checkout, and a pluggable payment-provider abstraction.",
+	"author": "Abdullah Hasan <dev@dullaz.com>",
+	"license": "MIT",
+	"homepage": "https://github.com/Dullaz/emdash-commerce#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/Dullaz/emdash-commerce.git"
+	},
+	"bugs": {
+		"url": "https://github.com/Dullaz/emdash-commerce/issues"
+	},
+	"keywords": [
+		"emdash",
+		"emdash-plugin",
+		"ecommerce",
+		"commerce",
+		"astro",
+		"cms",
+		"cart",
+		"checkout",
+		"orders"
+	],
 	"exports": {
 		".": "./src/index.ts",
 		"./admin": "./src/admin.tsx",
 		"./shared": "./src/constants.ts"
 	},
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
 	"peerDependencies": {
-		"@emdash-cms/admin": "*",
-		"emdash": "*",
-		"react": "*",
-		"react-dom": "*"
+		"@emdash-cms/admin": "^0.18.0",
+		"emdash": "^0.18.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	},
+	"devDependencies": {
+		"@emdash-cms/admin": "^0.18.0",
+		"@types/node": "^22.0.0",
+		"astro": "^6.3.0",
+		"emdash": "^0.18.0",
+		"react": "^19.2.0",
+		"react-dom": "^19.2.0",
+		"typescript": "^5.6.0"
 	}
 }

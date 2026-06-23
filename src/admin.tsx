@@ -7,6 +7,7 @@
 import type { ComponentType } from "react";
 import { DashboardWidget } from "./admin/DashboardWidget";
 import { InventoryPage } from "./admin/InventoryPage";
+import { NotificationsPage } from "./admin/NotificationsPage";
 import { OrdersPage } from "./admin/OrdersPage";
 import { SetupPage } from "./admin/SetupPage";
 
@@ -14,6 +15,7 @@ export const pages: Record<string, ComponentType> = {
 	"/setup": SetupPage,
 	"/orders": OrdersPage,
 	"/inventory": InventoryPage,
+	"/notifications": NotificationsPage,
 };
 
 export const widgets: Record<string, ComponentType> = {

@@ -8,7 +8,7 @@
 
 /** Stable plugin id. Mirrors `PLUGIN_ID` in index.ts (kept here too so the
  *  browser/storefront can build route URLs without importing the runtime). */
-export const PLUGIN_ID = "buysomepixels-commerce";
+export const PLUGIN_ID = "dullaz-commerce";
 
 /** Base path for this plugin's API routes. */
 export const API_BASE = `/_emdash/api/plugins/${PLUGIN_ID}`;
@@ -123,6 +123,26 @@ export interface CommerceConfig {
 	fieldMap: CommerceFieldMap;
 	/** Default ISO-4217 currency when a product has none. */
 	defaultCurrency: string;
+	/** Store-owner notification preferences (see {@link StoreNotifications}). */
+	notifications: StoreNotifications;
+}
+
+/**
+ * Where and when to email the store owner about ecommerce events. A null/empty
+ * `email` disables all owner notifications regardless of the toggles.
+ */
+export interface StoreNotifications {
+	/** Store-owner address notified of the enabled events. */
+	email: string | null;
+	/** Email the owner when an order is paid. */
+	onPurchase: boolean;
+	/** Email the owner when a customer requests a refund. */
+	onRefundRequest: boolean;
+}
+
+/** Default notification preferences (no address → notifications are off). */
+export function defaultNotifications(): StoreNotifications {
+	return { email: null, onPurchase: true, onRefundRequest: true };
 }
 
 /** Canonical map used when the plugin creates the collection itself. */
@@ -147,6 +167,7 @@ export function defaultConfig(defaultCurrency = "USD"): CommerceConfig {
 		productsCollection: null,
 		fieldMap: { ...DEFAULT_FIELD_MAP },
 		defaultCurrency,
+		notifications: defaultNotifications(),
 	};
 }
 

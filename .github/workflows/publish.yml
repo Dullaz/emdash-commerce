@@ -1,0 +1,34 @@
+name: Publish
+
+# Publishes to npm when a version tag (v*) is pushed.
+# Requires an NPM_TOKEN repo secret: a *granular automation* token scoped to
+# this package only. Publishes with provenance (OIDC) so consumers can verify
+# the tarball's origin.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run typecheck
+      # npm (not bun) for the publish step: it supports --provenance.
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

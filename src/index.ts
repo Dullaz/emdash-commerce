@@ -1,5 +1,5 @@
 /**
- * @buysomepixels/commerce — EmDash commerce plugin
+ * @dullaz/commerce — EmDash commerce plugin
  *
  * Native-format plugin. Two entry points live in this file because native
  * plugins run in-process:
@@ -19,12 +19,12 @@ import type { PluginContext, PluginDescriptor } from "emdash";
 import { buildRoutes } from "./routes";
 
 /** Stable plugin identity. Must match between descriptor and runtime. */
-export const PLUGIN_ID = "buysomepixels-commerce";
+export const PLUGIN_ID = "dullaz-commerce";
 export const PLUGIN_VERSION = "0.1.0";
 
 /** The module specifier other config points at (this package's "." export). */
-const ENTRYPOINT = "@buysomepixels/commerce";
-const ADMIN_ENTRY = "@buysomepixels/commerce/admin";
+const ENTRYPOINT = "@dullaz/commerce";
+const ADMIN_ENTRY = "@dullaz/commerce/admin";
 
 export interface CommerceOptions {
 	/** Default ISO-4217 currency code used when none is set. Defaults to "USD". */
@@ -92,7 +92,7 @@ export function createPlugin(options: CommerceOptions = {}) {
 		version: PLUGIN_VERSION,
 		// content:* to read the configured products collection (and seed demo
 		// products); network:request for the rootline PSP; email:send to send
-		// transactional mail (delivered by the separate bsp-email-plugin transport).
+		// transactional mail (delivered by the separate @dullaz/email transport).
 		capabilities: [
 			"content:read",
 			"content:write",
@@ -132,6 +132,7 @@ export function createPlugin(options: CommerceOptions = {}) {
 				{ path: "/orders", label: "Orders", icon: "receipt" },
 				{ path: "/inventory", label: "Inventory", icon: "package" },
 				{ path: "/setup", label: "Store setup", icon: "storefront" },
+				{ path: "/notifications", label: "Notifications", icon: "bell" },
 			],
 			widgets: [{ id: "dashboard", title: "Commerce", size: "half" }],
 			settingsSchema,

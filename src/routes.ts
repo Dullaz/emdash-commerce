@@ -6,6 +6,8 @@ import { z } from "astro/zod";
 import type { PluginContext, PluginRoute, RouteContext } from "emdash";
 import {
 	DEFAULT_FIELD_MAP,
+	PLUGIN_ID,
+	defaultNotifications,
 	type CommerceConfig,
 	type CommerceFieldMap,
 } from "./constants";
@@ -25,8 +27,13 @@ import {
 } from "./customers";
 import {
 	magicLinkEmail,
+	newOrderAdminEmail,
 	orderConfirmationEmail,
+	orderFulfilledEmail,
 	passwordResetEmail,
+	refundApprovedEmail,
+	refundRequestAdminEmail,
+	refundRequestedEmail,
 	verifyEmail,
 } from "./email/templates";
 import {
@@ -45,6 +52,7 @@ import {
 	type OrderStatus,
 } from "./domain";
 import { getActiveProvider, getProvider, loadProviderId } from "./payments";
+import { clientIp, enforceRateLimit } from "./rateLimit";
 import {
 	commitItems,
 	deleteCart,
@@ -161,6 +169,13 @@ const configSaveInput = z.object({
 	defaultCurrency: z.string().min(1).optional(),
 });
 
+const notificationsSaveInput = z.object({
+	// Empty string clears the address; otherwise it must be a valid email.
+	email: z.union([z.string().email(), z.literal("")]),
+	onPurchase: z.boolean(),
+	onRefundRequest: z.boolean(),
+});
+
 const cartAddInput = z.object({
 	token: z.string().min(1),
 	productId: z.string().min(1),
@@ -244,16 +259,41 @@ export function buildRoutes(opts: {
 			input: configSaveInput,
 			handler: async (ctx: RouteContext) => {
 				const input = ctx.input as z.infer<typeof configSaveInput>;
+				const stored = await loadStoredConfig(ctx);
 				const next: CommerceConfig = {
 					productsCollection: input.productsCollection,
 					fieldMap: { ...DEFAULT_FIELD_MAP, ...(input.fieldMap as CommerceFieldMap) },
 					defaultCurrency: input.defaultCurrency ?? defaultCurrency,
+					// Preserve any previously-set notification preferences.
+					notifications: { ...defaultNotifications(), ...stored?.notifications },
 				};
 				await saveConfig(ctx, next);
 				ctx.log.info("Commerce config saved", {
 					productsCollection: next.productsCollection,
 				});
 				return { configured: true, config: next };
+			},
+		},
+		"config/notifications": {
+			input: notificationsSaveInput,
+			handler: async (ctx: RouteContext) => {
+				const input = ctx.input as z.infer<typeof notificationsSaveInput>;
+				const effective = await loadEffectiveConfig(ctx, defaultCurrency);
+				const next: CommerceConfig = {
+					...effective.config,
+					notifications: {
+						email: input.email || null,
+						onPurchase: input.onPurchase,
+						onRefundRequest: input.onRefundRequest,
+					},
+				};
+				await saveConfig(ctx, next);
+				ctx.log.info("Commerce notifications saved", {
+					set: !!next.notifications.email,
+					onPurchase: next.notifications.onPurchase,
+					onRefundRequest: next.notifications.onRefundRequest,
+				});
+				return { config: next };
 			},
 		},
 
@@ -458,6 +498,31 @@ export function buildRoutes(opts: {
 								});
 							}
 						}
+						// Notify the store owner of the new order, if enabled.
+						const cfg = await config(ctx);
+						if (
+							ctx.email &&
+							cfg.notifications.email &&
+							cfg.notifications.onPurchase
+						) {
+							try {
+								await ctx.email.send(
+									newOrderAdminEmail({
+										to: cfg.notifications.email,
+										order: paid,
+										customerEmail: paid.email,
+										reviewUrl: ctx.url(
+											`/_emdash/admin/plugins/${PLUGIN_ID}/orders`,
+										),
+									}),
+								);
+							} catch (err) {
+								ctx.log.warn("New-order admin notification failed", {
+									orderId: paid.id,
+									error: String(err),
+								});
+							}
+						}
 					}
 					return { ok: true, status: "paid" };
 				}
@@ -495,6 +560,10 @@ export function buildRoutes(opts: {
 			input: orderLookupInput,
 			handler: async (ctx: RouteContext) => {
 				const { orderId, email } = ctx.input as z.infer<typeof orderLookupInput>;
+				await enforceRateLimit(ctx, "lookup", [
+					{ scope: "ip", id: clientIp(ctx), limit: 20, windowSec: 900 },
+					{ scope: "email", id: normalizeEmail(email), limit: 12, windowSec: 900 },
+				]);
 				const order = await getOrder(ctx, orderId);
 				if (!order || order.email !== normalizeEmail(email)) {
 					// Same response whether the id is wrong or the email mismatches,
@@ -531,6 +600,50 @@ export function buildRoutes(opts: {
 				};
 				await saveOrder(ctx, updated);
 				ctx.log.info("Refund requested", { orderId });
+				// Acknowledge the request by email (best-effort).
+				if (ctx.email && updated.email) {
+					try {
+						await ctx.email.send(
+							refundRequestedEmail({
+								to: updated.email,
+								order: updated,
+								reason: updated.refund?.reason,
+							}),
+						);
+					} catch (err) {
+						ctx.log.warn("Refund-requested email failed", {
+							orderId,
+							error: String(err),
+						});
+					}
+				}
+				// Notify the store owner, if enabled + configured (best-effort).
+				const cfg = await config(ctx);
+				if (
+					ctx.email &&
+					cfg.notifications.email &&
+					cfg.notifications.onRefundRequest &&
+					updated.email
+				) {
+					try {
+						await ctx.email.send(
+							refundRequestAdminEmail({
+								to: cfg.notifications.email,
+								order: updated,
+								customerEmail: updated.email,
+								reason: updated.refund?.reason,
+								reviewUrl: ctx.url(
+									`/_emdash/admin/plugins/${PLUGIN_ID}/orders`,
+								),
+							}),
+						);
+					} catch (err) {
+						ctx.log.warn("Refund-request admin notification failed", {
+							orderId,
+							error: String(err),
+						});
+					}
+				}
 				return sanitizeOrder(updated);
 			},
 		},
@@ -541,6 +654,10 @@ export function buildRoutes(opts: {
 			input: registerInput,
 			handler: async (ctx: RouteContext) => {
 				const input = ctx.input as z.infer<typeof registerInput>;
+				await enforceRateLimit(ctx, "register", [
+					{ scope: "ip", id: clientIp(ctx), limit: 10, windowSec: 3600 },
+					{ scope: "email", id: normalizeEmail(input.email), limit: 5, windowSec: 3600 },
+				]);
 				const problem = passwordProblem(input.password);
 				if (problem) throw badRequest(problem);
 				let customer;
@@ -579,6 +696,10 @@ export function buildRoutes(opts: {
 			input: loginInput,
 			handler: async (ctx: RouteContext) => {
 				const input = ctx.input as z.infer<typeof loginInput>;
+				await enforceRateLimit(ctx, "login", [
+					{ scope: "ip", id: clientIp(ctx), limit: 20, windowSec: 900 },
+					{ scope: "email", id: normalizeEmail(input.email), limit: 8, windowSec: 900 },
+				]);
 				const customer = await getCustomer(ctx, input.email);
 				if (
 					!customer?.passwordHash ||
@@ -618,6 +739,10 @@ export function buildRoutes(opts: {
 			input: emailOnlyInput,
 			handler: async (ctx: RouteContext) => {
 				const { email } = ctx.input as z.infer<typeof emailOnlyInput>;
+				await enforceRateLimit(ctx, "magic", [
+					{ scope: "ip", id: clientIp(ctx), limit: 10, windowSec: 900 },
+					{ scope: "email", id: normalizeEmail(email), limit: 4, windowSec: 900 },
+				]);
 				// Email a one-time sign-in link. Always succeed (never reveal whether
 				// an account exists). Consuming the link creates the account if needed.
 				const token = await createOneTimeToken(ctx, email, "login");
@@ -670,6 +795,10 @@ export function buildRoutes(opts: {
 			input: emailOnlyInput,
 			handler: async (ctx: RouteContext) => {
 				const { email } = ctx.input as z.infer<typeof emailOnlyInput>;
+				await enforceRateLimit(ctx, "reset", [
+					{ scope: "ip", id: clientIp(ctx), limit: 10, windowSec: 900 },
+					{ scope: "email", id: normalizeEmail(email), limit: 4, windowSec: 900 },
+				]);
 				// Only email if the account exists, but always return ok (no leak).
 				const customer = await getCustomer(ctx, email);
 				if (customer && ctx.email) {
@@ -748,6 +877,19 @@ export function buildRoutes(opts: {
 					order.items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
 				);
 				await saveOrder(ctx, refunded);
+				// Notify the customer that their refund was approved (best-effort).
+				if (ctx.email && refunded.email) {
+					try {
+						await ctx.email.send(
+							refundApprovedEmail({ to: refunded.email, order: refunded }),
+						);
+					} catch (err) {
+						ctx.log.warn("Refund-approved email failed", {
+							orderId,
+							error: String(err),
+						});
+					}
+				}
 				return { ok: true, status: "refunded" as const };
 			},
 		},
@@ -767,6 +909,23 @@ export function buildRoutes(opts: {
 					"fulfilled",
 				);
 				await saveOrder(ctx, fulfilled);
+				// Let the customer know their order is on its way (best-effort).
+				if (ctx.email && fulfilled.email) {
+					try {
+						await ctx.email.send(
+							orderFulfilledEmail({
+								to: fulfilled.email,
+								order: fulfilled,
+								lookupUrl: ctx.url("/orders/lookup"),
+							}),
+						);
+					} catch (err) {
+						ctx.log.warn("Order-fulfilled email failed", {
+							orderId,
+							error: String(err),
+						});
+					}
+				}
 				return { ok: true, status: "fulfilled" as const };
 			},
 		},

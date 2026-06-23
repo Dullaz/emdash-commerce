@@ -8,6 +8,7 @@ import {
 	DEFAULT_FIELD_MAP,
 	DEFAULT_PRODUCTS_COLLECTION,
 	defaultConfig,
+	defaultNotifications,
 	type CommerceConfig,
 } from "./constants";
 
@@ -37,6 +38,9 @@ export async function loadEffectiveConfig(
 	defaultCurrency = "USD",
 ): Promise<EffectiveConfig> {
 	const stored = await loadStoredConfig(ctx);
+	// Merge over defaults so older configs (saved before notifications existed)
+	// still resolve to a complete object.
+	const notifications = { ...defaultNotifications(), ...stored?.notifications };
 	if (stored?.productsCollection) {
 		return {
 			configured: true,
@@ -44,6 +48,7 @@ export async function loadEffectiveConfig(
 				productsCollection: stored.productsCollection,
 				fieldMap: { ...DEFAULT_FIELD_MAP, ...stored.fieldMap },
 				defaultCurrency: stored.defaultCurrency ?? defaultCurrency,
+				notifications,
 			},
 		};
 	}
@@ -52,6 +57,7 @@ export async function loadEffectiveConfig(
 		config: {
 			...defaultConfig(defaultCurrency),
 			productsCollection: DEFAULT_PRODUCTS_COLLECTION,
+			notifications,
 		},
 	};
 }
