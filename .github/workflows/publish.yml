@@ -21,10 +21,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+      # NOTE: no `registry-url` — it makes setup-node write an .npmrc with a
+      # bogus _authToken placeholder, which suppresses npm's OIDC trusted
+      # publishing and causes a 404 on publish.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: "https://registry.npmjs.org"
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run typecheck
