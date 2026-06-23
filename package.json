@@ -1,6 +1,6 @@
 {
 	"name": "@dullaz/commerce",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"type": "module",
 	"description": "Ecommerce for EmDash: products, inventory, orders, checkout, and a pluggable payment-provider abstraction.",
 	"author": "Abdullah Hasan <dev@dullaz.com>",
