@@ -32,5 +32,10 @@ jobs:
       - run: bun run typecheck
       # Trusted publishing (OIDC) requires npm >= 11.5.1; Node 22 ships npm 10.
       - run: npm install -g npm@latest
+      - name: diagnostics
+        run: |
+          echo "npm: $(npm --version)"
+          echo "which npm: $(which npm)"
+          echo "id-token url present: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
       # Provenance is generated automatically under trusted publishing.
       - run: npm publish --provenance --access public
