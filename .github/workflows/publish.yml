@@ -1,9 +1,9 @@
 name: Publish
 
-# Publishes to npm when a version tag (v*) is pushed.
-# Requires an NPM_TOKEN repo secret: a *granular automation* token scoped to
-# this package only. Publishes with provenance (OIDC) so consumers can verify
-# the tarball's origin.
+# Publishes to npm via Trusted Publishing (OIDC) when a version tag (v*) is
+# pushed. No NPM_TOKEN secret required — npm authenticates this workflow by its
+# GitHub identity. You must first configure a Trusted Publisher on the npm
+# package settings page (GitHub Actions -> this repo -> workflow "publish.yml").
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run typecheck
-      # npm (not bun) for the publish step: it supports --provenance.
+      # Trusted publishing (OIDC) requires npm >= 11.5.1; Node 22 ships npm 10.
+      - run: npm install -g npm@latest
+      # Provenance is generated automatically under trusted publishing.
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
